@@ -110,3 +110,33 @@ def generate(
             return r.json()
     except httpx.HTTPError as e:
         raise OllamaError(f"Generation with {model} failed: {e}") from e
+
+
+def generate_stream(
+    question: str,
+    system_prompt: str,
+    temperature: float,
+    model: str | None = None,
+) -> Iterator[dict[str, Any]]:
+    """Stream a generation chunk by chunk. Each chunk carries a 'response'
+    fragment; the final chunk has done=True plus the token counts."""
+    model = model or config.CHAT_MODEL
+    payload = {
+        "model": model,
+        "prompt": question,
+        "system": system_prompt,
+        "stream": True,
+        "options": {"temperature": temperature},
+    }
+    try:
+        with _client(timeout=None) as c:
+            with c.stream("POST", "/api/generate", json=payload) as r:
+                if r.status_code != 200:
+                    body = r.read().decode(errors="replace")
+                    raise OllamaError(f"Generation with {model} failed ({r.status_code}): {body}")
+                import json
+                for line in r.iter_lines():
+                    if line.strip():
+                        yield json.loads(line)
+    except httpx.HTTPError as e:
+        raise OllamaError(f"Generation with {model} failed: {e}") from e

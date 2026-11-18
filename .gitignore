@@ -13,6 +13,7 @@ __pycache__/
 data/semcache.db
 data/semcache.db-journal
 data/semcache.db-wal
+data/semcache.db-shm
 *.log
 *.tmp
 # ...but keep the two run-evidence logs the README points at

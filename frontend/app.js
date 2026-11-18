@@ -41,6 +41,26 @@ function backendDownMessage(err) {
   return err.message;
 }
 
+// The loading status cycles through what the cache is actually doing, so the
+// wait is readable instead of a static "Thinking". Order matches the real flow:
+// lookup first, then generation.
+const THINKING_PHRASES = [
+  "Thinking",
+  "Searching the cache",
+  "Comparing similarity",
+  "Generating an answer",
+];
+
+function startThinking(node) {
+  let i = 0;
+  node.textContent = THINKING_PHRASES[0];
+  const timer = setInterval(() => {
+    i = (i + 1) % THINKING_PHRASES.length;
+    node.textContent = THINKING_PHRASES[i];
+  }, 1100);
+  return () => clearInterval(timer);
+}
+
 // ---------- tabs ----------
 
 document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -70,6 +90,52 @@ document.getElementById("new-chat").addEventListener("click", () => {
     "Ask a question to start. Repeats and paraphrases should come back from the cache."));
 });
 
+// Render the "details" inspector plus the flag-as-wrong button once the answer
+// (streamed or cached) is complete.
+function fillAnswer(botMsg, question, d) {
+  botMsg.innerHTML = "";
+  botMsg.append(el("div", { class: "role" }, "SemCache"));
+  const textLine = el("div", { class: "text" }, d.answer);
+  textLine.append(el("span", { class: "badge " + (d.hit ? "hit" : "miss") },
+    d.hit ? (d.exact_hit ? "HIT (exact)" : "HIT (semantic)") : "MISS"));
+  botMsg.append(textLine);
+
+  const inspector = el("div", { class: "inspector" });
+  const lines = [];
+  if (d.hit) {
+    lines.push(`Matched cached question: "${d.matched_question}"`);
+    lines.push(`Similarity: ${d.similarity} | Margin: ${d.margin} | Cache age: ${Math.round(d.cache_age_seconds)}s`);
+  } else {
+    lines.push(`Miss reason: ${d.miss_reason}`);
+  }
+  const t = d.timings_ms;
+  lines.push(`Timings: embed ${fmtMs(t.embedding)}, retrieve ${fmtMs(t.retrieval)}, generate ${fmtMs(t.generation)}, total ${fmtMs(t.total)}`);
+  lines.push(`Model: ${d.chat_model} | Tokens: prompt ${d.tokens.prompt ?? "?"}, completion ${d.tokens.completion ?? "?"}`);
+  for (const line of lines) inspector.append(el("div", {}, line));
+
+  const actions = el("div", { class: "msg-actions" });
+  const toggle = el("button", {
+    class: "link-btn",
+    onclick: () => inspector.classList.toggle("open"),
+  }, "details");
+  actions.append(toggle);
+  if (d.hit) {
+    actions.append(el("button", {
+      class: "link-btn warn",
+      onclick: async () => {
+        try {
+          await api("/feedback", {
+            method: "POST",
+            body: JSON.stringify({ entry_id: d.entry_id, question, reason: "flagged as wrong from chat" }),
+          });
+          chatStatus.textContent = "Flagged. The cached entry was removed.";
+        } catch (err) { chatStatus.textContent = backendDownMessage(err); }
+      },
+    }, "flag as wrong"));
+  }
+  botMsg.append(inspector, actions);
+}
+
 chatForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const question = chatInput.value.trim();
@@ -82,59 +148,79 @@ chatForm.addEventListener("submit", async (e) => {
     el("div", { class: "role" }, "You"),
     el("div", { class: "text" }, question)));
 
+  const thinkText = el("div", { class: "text thinking" }, THINKING_PHRASES[0]);
   const botMsg = el("div", { class: "msg bot" },
-    el("div", { class: "role" }, "SemCache"),
-    el("div", { class: "text loading-dots" }, "Thinking"));
+    el("div", { class: "role" }, "SemCache"), thinkText);
   messages.append(botMsg);
   messages.scrollTop = messages.scrollHeight;
   chatStatus.textContent = "";
+  const stopThinking = startThinking(thinkText);
+
+  // The answer arrives as Server-Sent Events: a "meta" object first (hit/miss),
+  // then "token" pieces while the model writes, then a final "done" object.
+  let streamText = "";
+  let streamStarted = false;
+  let done = false;
+
+  function appendToken(piece) {
+    if (!streamStarted) {
+      stopThinking();
+      botMsg.innerHTML = "";
+      botMsg.append(el("div", { class: "role" }, "SemCache"),
+        el("div", { class: "text" }));
+      streamStarted = true;
+    }
+    streamText += piece;
+    botMsg.querySelector(".text").textContent = streamText;
+    messages.scrollTop = messages.scrollHeight;
+  }
 
   try {
-    const d = await api("/chat", { method: "POST", body: JSON.stringify({ question }) });
-    botMsg.innerHTML = "";
-    botMsg.append(el("div", { class: "role" }, "SemCache"));
-    const textLine = el("div", { class: "text" }, d.answer);
-    textLine.append(el("span", { class: "badge " + (d.hit ? "hit" : "miss") },
-      d.hit ? (d.exact_hit ? "HIT (exact)" : "HIT (semantic)") : "MISS"));
-    botMsg.append(textLine);
-
-    const inspector = el("div", { class: "inspector" });
-    const lines = [];
-    if (d.hit) {
-      lines.push(`Matched cached question: "${d.matched_question}"`);
-      lines.push(`Similarity: ${d.similarity} | Margin: ${d.margin} | Cache age: ${Math.round(d.cache_age_seconds)}s`);
-    } else {
-      lines.push(`Miss reason: ${d.miss_reason}`);
+    const res = await fetch(API + "/chat/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question }),
+    });
+    if (!res.ok) {
+      let msg = `HTTP ${res.status}`;
+      try { const j = await res.json(); if (j.error) msg = j.error.message; } catch { /* ignore */ }
+      throw new Error(msg);
     }
-    const t = d.timings_ms;
-    lines.push(`Timings: embed ${fmtMs(t.embedding)}, retrieve ${fmtMs(t.retrieval)}, generate ${fmtMs(t.generation)}, total ${fmtMs(t.total)}`);
-    lines.push(`Model: ${d.chat_model} | Tokens: prompt ${d.tokens.prompt ?? "?"}, completion ${d.tokens.completion ?? "?"}`);
-    for (const line of lines) inspector.append(el("div", {}, line));
 
-    const actions = el("div", { class: "msg-actions" });
-    const toggle = el("button", {
-      class: "link-btn",
-      onclick: () => inspector.classList.toggle("open"),
-    }, "details");
-    actions.append(toggle);
-    if (d.hit) {
-      actions.append(el("button", {
-        class: "link-btn warn",
-        onclick: async () => {
-          try {
-            await api("/feedback", {
-              method: "POST",
-              body: JSON.stringify({ entry_id: d.entry_id, question, reason: "flagged as wrong from chat" }),
-            });
-            chatStatus.textContent = "Flagged. The cached entry was removed.";
-          } catch (err) { chatStatus.textContent = backendDownMessage(err); }
-        },
-      }, "flag as wrong"));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop();
+      for (const evt of events) {
+        const line = evt.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        const obj = JSON.parse(line.slice(5).trim());
+        if (obj.type === "token") appendToken(obj.data);
+        else if (obj.type === "done") {
+          done = true;
+          stopThinking();
+          fillAnswer(botMsg, question, obj.data);
+        } else if (obj.type === "error") throw new Error(obj.data);
+      }
     }
-    botMsg.append(inspector, actions);
+    if (!done) {
+      // Stream ended without a final object; show whatever we have.
+      if (!streamStarted) throw new Error("No response from the backend.");
+    }
   } catch (err) {
-    botMsg.querySelector(".text").textContent = "Error: " + backendDownMessage(err);
-    botMsg.querySelector(".text").classList.remove("loading-dots");
+    stopThinking();
+    if (streamStarted && streamText) {
+      chatStatus.textContent = "Stream error: " + backendDownMessage(err);
+    } else {
+      botMsg.innerHTML = "";
+      botMsg.append(el("div", { class: "role" }, "SemCache"),
+        el("div", { class: "text error-text" }, "Error: " + backendDownMessage(err)));
+    }
   } finally {
     busy = false;
     messages.scrollTop = messages.scrollHeight;
@@ -195,6 +281,47 @@ document.getElementById("cache-clear").addEventListener("click", async () => {
     alert(`Removed ${d.removed} entries.`);
     loadCache();
   } catch (err) { alert(backendDownMessage(err)); }
+});
+
+document.getElementById("cache-cleanup").addEventListener("click", async () => {
+  try {
+    const d = await api("/cache/cleanup", { method: "POST" });
+    alert(`Removed ${d.removed} expired entries.`);
+    loadCache();
+  } catch (err) { alert(backendDownMessage(err)); }
+});
+
+document.getElementById("cache-export").addEventListener("click", async () => {
+  try {
+    const data = await api("/cache/export");
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = el("a", { href: url, download: "semcache-export.json" });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) { alert(backendDownMessage(err)); }
+});
+
+const importFile = document.getElementById("cache-import-file");
+document.getElementById("cache-import").addEventListener("click", () => importFile.click());
+importFile.addEventListener("change", async () => {
+  const file = importFile.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const entries = Array.isArray(parsed) ? parsed : parsed.entries;
+    const replace = confirm("Replace all current entries? OK = replace, Cancel = add to the existing ones.");
+    const d = await api("/cache/import", {
+      method: "POST",
+      body: JSON.stringify({ entries, replace }),
+    });
+    alert(`Imported ${d.inserted} entries (${d.skipped} skipped).`);
+    loadCache();
+  } catch (err) { alert(backendDownMessage(err)); }
+  finally { importFile.value = ""; }
 });
 
 // ---------- analytics ----------
@@ -487,8 +614,30 @@ async function loadSettings() {
     document.getElementById("cfg-tau").value = cfg.tau;
     document.getElementById("cfg-delta").value = cfg.delta;
     document.getElementById("cfg-ttl").value = cfg.ttl_hours;
+    loadNamespaces();
   } catch (err) {
     healthBox.append(el("p", { class: "bad" }, backendDownMessage(err)));
+  }
+}
+
+async function loadNamespaces() {
+  const box = document.getElementById("ns-list");
+  box.innerHTML = "";
+  try {
+    const d = await api("/config/namespaces");
+    if (!d.namespaces.length) {
+      box.append(el("div", { class: "note" }, "No overrides set; every namespace uses the global values above."));
+      return;
+    }
+    for (const n of d.namespaces) {
+      box.append(el("div", { class: "entry-meta" },
+        el("span", {}, n.namespace),
+        el("span", {}, `tau: ${n.tau}`),
+        el("span", {}, `delta: ${n.delta}`),
+        el("span", {}, `ttl: ${n.ttl_hours}h`)));
+    }
+  } catch (err) {
+    box.append(el("div", { class: "note" }, backendDownMessage(err)));
   }
 }
 
@@ -540,6 +689,24 @@ document.getElementById("cfg-save").addEventListener("click", async () => {
       }),
     });
     status.textContent = `Saved: tau=${d.tau} delta=${d.delta} ttl=${d.ttl_hours}h`;
+  } catch (err) { status.textContent = backendDownMessage(err); }
+});
+
+document.getElementById("ns-save").addEventListener("click", async () => {
+  const status = document.getElementById("ns-status");
+  const namespace = document.getElementById("ns-name").value.trim();
+  if (!namespace) { status.textContent = "Enter a namespace id first."; return; }
+  const body = { namespace };
+  const tau = document.getElementById("ns-tau").value.trim();
+  const delta = document.getElementById("ns-delta").value.trim();
+  const ttl = document.getElementById("ns-ttl").value.trim();
+  if (tau) body.tau = parseFloat(tau);
+  if (delta) body.delta = parseFloat(delta);
+  if (ttl) body.ttl_hours = parseFloat(ttl);
+  try {
+    const d = await api("/config", { method: "POST", body: JSON.stringify(body) });
+    status.textContent = `Override saved for ${d.namespace}: tau=${d.tau} delta=${d.delta} ttl=${d.ttl_hours}h`;
+    loadNamespaces();
   } catch (err) { status.textContent = backendDownMessage(err); }
 });
 

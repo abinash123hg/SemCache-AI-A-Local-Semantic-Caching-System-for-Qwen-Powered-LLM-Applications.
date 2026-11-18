@@ -32,6 +32,15 @@ SIMILARITY_THRESHOLD = 0.90   # tau: minimum cosine similarity for a hit
 MARGIN_THRESHOLD = 0.02       # delta: min gap between best and second-best
 TTL_HOURS = 24                # entries older than this are not served
 
+# Size limit. When the entry count goes over this, the least-recently-used
+# entries are dropped so the cache cannot grow without bound.
+MAX_ENTRIES = 5000
+
+# Near-duplicate merge. On insert, if the new question is at least this similar
+# to an existing entry in the same namespace, they are treated as the same
+# question: the old row is replaced instead of storing a near-twin.
+NEAR_DUPLICATE_THRESHOLD = 0.99
+
 # Input limits. Long questions cost embedding time and are rarely cache hits.
 MAX_QUESTION_CHARS = 2000
 MAX_SYSTEM_PROMPT_CHARS = 1000

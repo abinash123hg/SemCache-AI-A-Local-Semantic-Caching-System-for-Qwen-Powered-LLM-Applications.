@@ -93,6 +93,7 @@ class ConfigUpdate(BaseModel):
     tau: float | None = Field(default=None, ge=0.0, le=1.0)
     delta: float | None = Field(default=None, ge=0.0, le=1.0)
     ttl_hours: float | None = Field(default=None, ge=0.0)
+    namespace: str | None = None  # set per-namespace overrides instead of global
 
 
 class FeedbackRequest(BaseModel):
@@ -103,6 +104,11 @@ class FeedbackRequest(BaseModel):
 
 class BenchmarkRequest(BaseModel):
     experiment: str = "all"  # "1".."5" or "all"
+
+
+class ImportRequest(BaseModel):
+    entries: list[dict]
+    replace: bool = False
 
 
 # ---------- endpoints ----------
@@ -242,6 +248,142 @@ def chat(req: ChatRequest) -> dict:
     }
 
 
+# ---------- shared chat helpers (also used by the streaming endpoint) ----------
+
+def _ready_or_error() -> JSONResponse | None:
+    """Ollama must be up and both models installed. Shared guard."""
+    if not ollama_client.is_running():
+        return JSONResponse(status_code=502, content={"error": {
+            "code": "ollama_unavailable",
+            "message": "Ollama is not running. Start it (the launcher does this automatically) and try again."}})
+    missing = ollama_client.missing_models()
+    if missing:
+        return JSONResponse(status_code=502, content={"error": {
+            "code": "models_missing",
+            "message": f"Missing Ollama models: {', '.join(missing)}. Pull them from the Settings tab."}})
+    return None
+
+
+def _lookup_phase(req: ChatRequest) -> dict:
+    """Normalize -> exact lookup -> embed -> semantic lookup, so /chat and
+    /chat/stream always make the same caching decision."""
+    t_start = time.perf_counter()
+    question = req.question.strip()
+    normalized = embedding.normalize_question(question)
+    ns = cache_mod.namespace_of(config.CHAT_MODEL, config.EMBED_MODEL,
+                                req.system_prompt, req.temperature)
+    t0 = time.perf_counter()
+    result = _cache.lookup(ns, normalized, None)
+    retrieval_ms = (time.perf_counter() - t0) * 1000
+    embedding_ms = 0.0
+    if not result.hit:
+        t0 = time.perf_counter()
+        vec, _dim = embedding.embed_query(question)
+        embedding_ms = (time.perf_counter() - t0) * 1000
+        t0 = time.perf_counter()
+        result = _cache.lookup(ns, normalized, np.array(vec))
+        retrieval_ms = (time.perf_counter() - t0) * 1000
+    return {"t_start": t_start, "question": question, "normalized": normalized,
+            "ns": ns, "result": result, "retrieval_ms": retrieval_ms,
+            "embedding_ms": embedding_ms}
+
+
+def _hit_tokens(entry_id: int) -> tuple[int | None, int | None]:
+    row = _cache._conn.execute(
+        "SELECT prompt_tokens, completion_tokens FROM entries WHERE id = ?", (entry_id,)
+    ).fetchone()
+    return (row["prompt_tokens"], row["completion_tokens"]) if row else (None, None)
+
+
+def _chat_payload(phase: dict, answer: str, generation_ms: float,
+                  prompt_tokens: int | None, completion_tokens: int | None) -> dict:
+    result = phase["result"]
+    total_ms = (time.perf_counter() - phase["t_start"]) * 1000
+    _cache.record_request(phase["ns"], result.hit, result.exact,
+                          result.similarity if result.similarity else None,
+                          result.margin if result.margin else None,
+                          phase["embedding_ms"], phase["retrieval_ms"], generation_ms, total_ms,
+                          prompt_tokens, completion_tokens, phase["question"])
+    return {
+        "answer": answer,
+        "hit": result.hit,
+        "exact_hit": result.exact,
+        "similarity": round(result.similarity, 4) if result.similarity else None,
+        "margin": round(result.margin, 4) if result.margin else None,
+        "matched_question": result.question if result.hit else None,
+        "entry_id": result.entry_id if result.hit else None,
+        "cache_age_seconds": round(result.age_seconds, 1) if result.hit else None,
+        "miss_reason": result.reason if not result.hit else None,
+        "chat_model": config.CHAT_MODEL,
+        "embed_model": config.EMBED_MODEL,
+        "timings_ms": {
+            "embedding": round(phase["embedding_ms"], 1),
+            "retrieval": round(phase["retrieval_ms"], 1),
+            "generation": round(generation_ms, 1),
+            "total": round(total_ms, 1),
+        },
+        "tokens": {"prompt": prompt_tokens, "completion": completion_tokens},
+    }
+
+
+@app.post("/chat/stream")
+def chat_stream(req: ChatRequest) -> Any:
+    """Same caching decision as /chat, but a cache miss streams the answer as
+    Server-Sent Events: one JSON object per `data:` line, each tagged with a
+    `type` of meta / token / done / error."""
+    guard = _ready_or_error()
+    if guard is not None:
+        return guard
+
+    def sse(obj: dict) -> str:
+        return "data: " + json.dumps(obj) + "\n\n"
+
+    def gen():
+        try:
+            phase = _lookup_phase(req)
+            result = phase["result"]
+
+            if result.hit:
+                answer = result.answer or ""
+                p_tok, c_tok = _hit_tokens(result.entry_id)
+                payload = _chat_payload(phase, answer, 0.0, p_tok, c_tok)
+                yield sse({"type": "meta", "data": payload})
+                yield sse({"type": "token", "data": answer})
+                yield sse({"type": "done", "data": payload})
+                return
+
+            yield sse({"type": "meta", "data": {
+                "hit": False, "miss_reason": result.reason,
+                "chat_model": config.CHAT_MODEL, "embed_model": config.EMBED_MODEL}})
+
+            t0 = time.perf_counter()
+            parts: list[str] = []
+            p_tok = c_tok = None
+            for chunk in ollama_client.generate_stream(phase["question"], req.system_prompt,
+                                                       req.temperature):
+                piece = chunk.get("response", "")
+                if piece:
+                    parts.append(piece)
+                    yield sse({"type": "token", "data": piece})
+                if chunk.get("done"):
+                    p_tok = chunk.get("prompt_eval_count")
+                    c_tok = chunk.get("eval_count")
+            generation_ms = (time.perf_counter() - t0) * 1000
+            answer = "".join(parts)
+            if answer:
+                vec, _dim = embedding.embed_document(phase["question"])
+                _cache.insert(phase["ns"], phase["question"], phase["normalized"], vec, answer,
+                              config.CHAT_MODEL, config.EMBED_MODEL,
+                              prompt_tokens=p_tok or 0, completion_tokens=c_tok or 0)
+            payload = _chat_payload(phase, answer, generation_ms, p_tok, c_tok)
+            yield sse({"type": "done", "data": payload})
+        except ollama_client.OllamaError as e:
+            yield sse({"type": "error", "data": str(e)})
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.get("/cache")
 def cache_list(search: str = "", limit: int = 200) -> dict:
     limit = max(1, min(limit, 1000))
@@ -268,6 +410,29 @@ def cache_clear(req: ClearRequest) -> dict:
     return {"removed": removed}
 
 
+@app.get("/cache/export")
+def cache_export(namespace: str = "") -> dict:
+    """Download the cache as JSON so it can be backed up or moved to another
+    machine. Optionally restrict to a single namespace."""
+    return _cache.export_entries(namespace or None)
+
+
+@app.post("/cache/import")
+def cache_import(req: ImportRequest) -> dict:
+    """Load entries produced by /cache/export. Malformed rows are skipped."""
+    try:
+        return _cache.import_entries({"entries": req.entries}, replace=req.replace)
+    except ValueError as e:
+        return JSONResponse(status_code=400, content={"error": {
+            "code": "bad_payload", "message": str(e)}})
+
+
+@app.post("/cache/cleanup")
+def cache_cleanup() -> dict:
+    """Sweep expired entries right now instead of waiting for the next insert."""
+    return {"removed": _cache.cleanup_expired()}
+
+
 @app.get("/config")
 def get_config() -> dict:
     return {
@@ -276,12 +441,23 @@ def get_config() -> dict:
         "embed_model": config.EMBED_MODEL,
         "backend_port": config.BACKEND_PORT,
         "frontend_port": config.FRONTEND_PORT,
+        "max_entries": config.MAX_ENTRIES,
+        "near_duplicate_threshold": config.NEAR_DUPLICATE_THRESHOLD,
     }
+
+
+@app.get("/config/namespaces")
+def get_namespace_configs() -> dict:
+    """List the per-namespace overrides that are set. Namespaces without an
+    override simply follow the global tau/delta/ttl."""
+    return {"namespaces": _cache.list_namespace_settings()}
 
 
 @app.post("/config")
 def update_config(req: ConfigUpdate) -> dict:
     try:
+        if req.namespace:
+            return _cache.update_namespace_settings(req.namespace, req.tau, req.delta, req.ttl_hours)
         return _cache.update_settings(req.tau, req.delta, req.ttl_hours)
     except ValueError as e:
         return JSONResponse(status_code=400, content={"error": {

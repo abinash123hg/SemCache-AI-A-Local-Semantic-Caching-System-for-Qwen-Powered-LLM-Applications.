@@ -74,6 +74,11 @@ class Cache:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        # WAL lets readers and the writer run at the same time, and busy_timeout
+        # avoids "database is locked" errors when several requests overlap.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA synchronous=NORMAL")
+        self._conn.execute("PRAGMA busy_timeout=5000")
         self._init_schema()
         self._load_settings()
 
@@ -103,6 +108,7 @@ class Cache:
                     completion_tokens INTEGER DEFAULT 0,
                     created_at REAL NOT NULL,
                     expires_at REAL NOT NULL,
+                    last_used_at REAL,
                     hit_count INTEGER DEFAULT 0,
                     flagged INTEGER DEFAULT 0
                 );
@@ -138,8 +144,23 @@ class Cache:
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS namespace_settings (
+                    namespace TEXT PRIMARY KEY,
+                    tau REAL,
+                    delta REAL,
+                    ttl_hours REAL
+                );
                 """
             )
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns that databases created by older versions do not have."""
+        cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(entries)")}
+        if "last_used_at" not in cols:
+            with _write_lock, self._conn:
+                self._conn.execute("ALTER TABLE entries ADD COLUMN last_used_at REAL")
 
     def _load_settings(self) -> None:
         rows = {r["key"]: r["value"] for r in self._conn.execute("SELECT key, value FROM settings")}
@@ -173,6 +194,54 @@ class Cache:
     def get_settings(self) -> dict:
         return {"tau": self.tau, "delta": self.delta, "ttl_hours": self.ttl_hours}
 
+    # ---------- per-namespace overrides ----------
+
+    def namespace_settings(self, namespace: str) -> dict:
+        """Effective tau/delta/ttl for one namespace: its own override if set,
+        otherwise the global value."""
+        row = self._conn.execute(
+            "SELECT tau, delta, ttl_hours FROM namespace_settings WHERE namespace = ?",
+            (namespace,),
+        ).fetchone()
+        return {
+            "namespace": namespace,
+            "tau": row["tau"] if row and row["tau"] is not None else self.tau,
+            "delta": row["delta"] if row and row["delta"] is not None else self.delta,
+            "ttl_hours": row["ttl_hours"] if row and row["ttl_hours"] is not None else self.ttl_hours,
+        }
+
+    def update_namespace_settings(self, namespace: str, tau: float | None = None,
+                                  delta: float | None = None,
+                                  ttl_hours: float | None = None) -> dict:
+        """Set (or clear) overrides for one namespace. Values are validated the
+        same way as the global settings; None leaves the current value alone."""
+        if tau is not None and not (0.0 <= tau <= 1.0):
+            raise ValueError("tau must be between 0 and 1")
+        if delta is not None and not (0.0 <= delta <= 1.0):
+            raise ValueError("delta must be between 0 and 1")
+        if ttl_hours is not None and ttl_hours < 0:
+            raise ValueError("ttl_hours cannot be negative")
+        cur = self.namespace_settings(namespace)
+        merged = {
+            "tau": tau if tau is not None else cur["tau"],
+            "delta": delta if delta is not None else cur["delta"],
+            "ttl_hours": ttl_hours if ttl_hours is not None else cur["ttl_hours"],
+        }
+        with _write_lock, self._conn:
+            self._conn.execute(
+                "INSERT INTO namespace_settings(namespace, tau, delta, ttl_hours) VALUES(?,?,?,?) "
+                "ON CONFLICT(namespace) DO UPDATE SET tau = excluded.tau, "
+                "delta = excluded.delta, ttl_hours = excluded.ttl_hours",
+                (namespace, merged["tau"], merged["delta"], merged["ttl_hours"]),
+            )
+        return self.namespace_settings(namespace)
+
+    def list_namespace_settings(self) -> list[dict]:
+        return [dict(r) for r in self._conn.execute(
+            "SELECT namespace, tau, delta, ttl_hours FROM namespace_settings "
+            "ORDER BY namespace"
+        )]
+
     # ---------- lookup ----------
 
     def lookup(self, namespace: str, normalized: str,
@@ -180,6 +249,8 @@ class Cache:
         """Exact match first (cheap hash), then semantic top-1 with margin rule.
         query_vec may be None for the exact-only mode used by benchmarks."""
         now = _now()
+        eff = self.namespace_settings(namespace)
+        tau, delta = eff["tau"], eff["delta"]
         row = self._conn.execute(
             "SELECT * FROM entries WHERE namespace = ? AND exact_hash = ? "
             "AND flagged = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
@@ -216,12 +287,12 @@ class Cache:
         margin = s1 - s2
         best_row = rows[best]
 
-        if s1 < self.tau:
+        if s1 < tau:
             return LookupResult(hit=False, similarity=s1, margin=margin,
-                                reason=f"best similarity {s1:.4f} below tau {self.tau:.2f}")
-        if margin < self.delta:
+                                reason=f"best similarity {s1:.4f} below tau {tau:.2f}")
+        if margin < delta:
             return LookupResult(hit=False, similarity=s1, margin=margin,
-                                reason=f"margin {margin:.4f} below delta {self.delta:.2f} (ambiguous)")
+                                reason=f"margin {margin:.4f} below delta {delta:.2f} (ambiguous)")
 
         self._bump_hit(ids[best])
         return LookupResult(
@@ -232,7 +303,10 @@ class Cache:
 
     def _bump_hit(self, entry_id: int) -> None:
         with _write_lock, self._conn:
-            self._conn.execute("UPDATE entries SET hit_count = hit_count + 1 WHERE id = ?", (entry_id,))
+            self._conn.execute(
+                "UPDATE entries SET hit_count = hit_count + 1, last_used_at = ? WHERE id = ?",
+                (_now(), entry_id),
+            )
 
     # ---------- insert / delete ----------
 
@@ -241,25 +315,77 @@ class Cache:
                prompt_tokens: int = 0, completion_tokens: int = 0,
                ttl_hours: float | None = None) -> int:
         now = _now()
-        ttl = ttl_hours if ttl_hours is not None else self.ttl_hours
+        ttl = ttl_hours if ttl_hours is not None else self.namespace_settings(namespace)["ttl_hours"]
         blob = _vec_to_blob(vec)
         with _write_lock, self._conn:
-            # Duplicate detection: concurrent misses on the same question all
-            # try to insert; keep only the newest entry per exact hash so the
-            # cache does not fill up with copies.
+            # Exact duplicates: concurrent misses on the same question all try to
+            # insert; keep only the newest entry per exact hash so the cache does
+            # not fill up with copies.
             self._conn.execute(
                 "DELETE FROM entries WHERE namespace = ? AND exact_hash = ?",
                 (namespace, exact_hash(normalized)),
             )
+            # Near-duplicates: a re-phrased question that embeds almost identically
+            # would otherwise create a twin. Merge it instead of storing both.
+            self._merge_near_duplicate_locked(namespace, vec)
             cur = self._conn.execute(
                 "INSERT INTO entries (namespace, question, normalized, exact_hash, embedding, "
                 "dim, answer, chat_model, embed_model, prompt_tokens, completion_tokens, "
-                "created_at, expires_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "created_at, expires_at, last_used_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (namespace, question, normalized, exact_hash(normalized), blob, len(vec),
                  answer, chat_model, embed_model, prompt_tokens, completion_tokens,
-                 now, now + ttl * 3600),
+                 now, now + ttl * 3600, now),
             )
-            return int(cur.lastrowid)
+            new_id = int(cur.lastrowid)
+            self._evict_locked()
+            return new_id
+
+    def _merge_near_duplicate_locked(self, namespace: str, new_vec: list[float]) -> int | None:
+        """Delete an existing entry that is a near-twin of new_vec. Caller holds
+        the write lock. Returns the deleted id, or None if nothing was close."""
+        rows = self._conn.execute(
+            "SELECT id, embedding FROM entries WHERE namespace = ? AND flagged = 0",
+            (namespace,),
+        ).fetchall()
+        if not rows:
+            return None
+        nv = np.asarray(new_vec, dtype=np.float64)
+        best_id, best_sim = None, -1.0
+        for r in rows:
+            sim = float(_blob_to_vec(r["embedding"]) @ nv)
+            if sim > best_sim:
+                best_sim, best_id = sim, r["id"]
+        if best_id is not None and best_sim >= config.NEAR_DUPLICATE_THRESHOLD:
+            self._conn.execute("DELETE FROM entries WHERE id = ?", (best_id,))
+            return best_id
+        return None
+
+    def _evict_locked(self) -> int:
+        """Drop expired rows, then the least-recently-used rows above the size
+        cap. Caller holds the write lock. Returns how many rows were removed."""
+        removed = self._conn.execute(
+            "DELETE FROM entries WHERE expires_at <= ?", (_now(),)
+        ).rowcount
+        total = self._conn.execute("SELECT COUNT(*) c FROM entries").fetchone()["c"]
+        if total > config.MAX_ENTRIES:
+            over = total - config.MAX_ENTRIES
+            cur = self._conn.execute(
+                "DELETE FROM entries WHERE id IN ("
+                "SELECT id FROM entries ORDER BY COALESCE(last_used_at, created_at) ASC LIMIT ?)",
+                (over,),
+            )
+            removed += cur.rowcount
+        return removed
+
+    def cleanup_expired(self) -> int:
+        """Sweep expired entries now. Safe to call any time."""
+        with _write_lock, self._conn:
+            return self._conn.execute(
+                "DELETE FROM entries WHERE expires_at <= ?", (_now(),)
+            ).rowcount
+
+    def count_entries(self) -> int:
+        return self._conn.execute("SELECT COUNT(*) c FROM entries").fetchone()["c"]
 
     def delete_entry(self, entry_id: int) -> bool:
         with _write_lock, self._conn:
@@ -286,13 +412,65 @@ class Cache:
             if entry_id is not None:
                 self._conn.execute("DELETE FROM entries WHERE id = ?", (entry_id,))
 
+    # ---------- export / import ----------
+
+    def export_entries(self, namespace: str | None = None) -> dict:
+        """Dump entries as plain JSON (embedding stored as a float list) so the
+        cache can be backed up or moved between machines."""
+        q = "SELECT * FROM entries"
+        args: list = []
+        if namespace:
+            q += " WHERE namespace = ?"
+            args.append(namespace)
+        out = []
+        for r in self._conn.execute(q, args):
+            d = dict(r)
+            d["embedding"] = _blob_to_vec(r["embedding"]).tolist()
+            out.append(d)
+        return {"version": 1, "count": len(out), "entries": out}
+
+    def import_entries(self, data: dict, replace: bool = False) -> dict:
+        """Load entries produced by export_entries. Malformed rows are skipped
+        instead of failing the whole import."""
+        entries = data.get("entries") if isinstance(data, dict) else None
+        if not isinstance(entries, list):
+            raise ValueError("import payload must be an object with an 'entries' list")
+        now = _now()
+        inserted = 0
+        with _write_lock, self._conn:
+            if replace:
+                self._conn.execute("DELETE FROM entries")
+            for e in entries:
+                try:
+                    vec = [float(x) for x in e["embedding"]]
+                    normalized = e.get("normalized") or e["question"].strip().lower()
+                    self._conn.execute(
+                        "INSERT INTO entries (namespace, question, normalized, exact_hash, "
+                        "embedding, dim, answer, chat_model, embed_model, prompt_tokens, "
+                        "completion_tokens, created_at, expires_at, hit_count, flagged, "
+                        "last_used_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (e["namespace"], e["question"], normalized, exact_hash(normalized),
+                         _vec_to_blob(vec), len(vec), e.get("answer", ""),
+                         e.get("chat_model", ""), e.get("embed_model", ""),
+                         int(e.get("prompt_tokens", 0)), int(e.get("completion_tokens", 0)),
+                         float(e.get("created_at", now)),
+                         float(e.get("expires_at", now + self.ttl_hours * 3600)),
+                         int(e.get("hit_count", 0)), int(e.get("flagged", 0)),
+                         e.get("last_used_at")),
+                    )
+                    inserted += 1
+                except (KeyError, TypeError, ValueError):
+                    continue
+            self._evict_locked()
+        return {"inserted": inserted, "skipped": len(entries) - inserted}
+
     # ---------- reads ----------
 
     def list_entries(self, namespace: str | None = None, search: str = "",
                      limit: int = 200) -> list[dict]:
         q = "SELECT id, namespace, question, answer, chat_model, embed_model, dim, " \
-            "created_at, expires_at, hit_count, flagged, prompt_tokens, completion_tokens " \
-            "FROM entries"
+            "created_at, expires_at, last_used_at, hit_count, flagged, " \
+            "prompt_tokens, completion_tokens FROM entries"
         args: list = []
         conds = []
         if namespace:

@@ -19,12 +19,15 @@ QUERY_PREFIX = "search_query: "
 DOCUMENT_PREFIX = "search_query: "  # same prefix on purpose; see comment above
 
 _whitespace = re.compile(r"\s+")
+_punctuation = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def normalize_question(text: str) -> str:
-    """Lowercase, trim, collapse whitespace. Used for exact-match hashing so
-    'What is AI?' and '  what is   ai? ' are the same question."""
-    return _whitespace.sub(" ", text.strip().lower())
+    """Lowercase, drop punctuation, collapse whitespace. Used for exact-match
+    hashing so 'What is AI?' and '  what is   ai ' are the same question."""
+    lowered = text.strip().lower()
+    no_punct = _punctuation.sub(" ", lowered)
+    return _whitespace.sub(" ", no_punct).strip()
 
 
 def _validate(vec: list[float], expected_dim: int | None) -> None:

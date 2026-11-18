@@ -16,7 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
-from backend import cache as cache_mod
+from backend import cache as cache_mod, config, embedding
 
 
 def unit(vec: list[float]) -> list[float]:
@@ -74,10 +74,12 @@ class TestSemanticMatch(CacheTestBase):
         self.assertIn("below tau", res.reason)
 
     def test_margin_rule_blocks_ambiguous(self):
-        # two entries almost equally close: high similarity but tiny margin
+        # Two distinct entries (0.95 apart, i.e. below NEAR_DUPLICATE_THRESHOLD so
+        # neither is merged away) that the query sits right between. Both are
+        # above tau, but the gap between them is ~0, so the margin rule refuses.
         self.insert("sort ascending", [1, 0, 0, 0])
-        self.insert("sort descending", [0.999, 0.045, 0, 0])
-        q = unit([1, 0.01, 0, 0])
+        self.insert("sort descending", [0.95, 0.312, 0, 0])
+        q = unit([1.95, 0.312, 0, 0])
         res = self.db.lookup(self.ns, "how do I sort", np.array(q))
         self.assertFalse(res.hit)
         self.assertIn("margin", res.reason)
@@ -169,6 +171,115 @@ class TestSettingsValidation(CacheTestBase):
     def test_update_round_trip(self):
         out = self.db.update_settings(tau=0.93, delta=0.01, ttl_hours=6)
         self.assertEqual(out, {"tau": 0.93, "delta": 0.01, "ttl_hours": 6.0})
+
+
+class TestNormalization(unittest.TestCase):
+    def test_punctuation_and_case_ignored(self):
+        self.assertEqual(embedding.normalize_question("  What is AI?  "),
+                         embedding.normalize_question("what is ai"))
+
+    def test_collapses_whitespace(self):
+        self.assertEqual(embedding.normalize_question("hello   world\n"),
+                         "hello world")
+
+
+class TestNearDuplicateMerge(CacheTestBase):
+    def test_near_twin_replaces_old_entry(self):
+        # Two questions that embed almost identically should collapse to one row.
+        self.insert("capital of France", [1, 0, 0, 0])
+        self.insert("capital city of France", unit([0.9995, 0.01, 0, 0]))
+        self.assertEqual(self.db.count_entries(), 1,
+                         "a near-duplicate insert must not create a second row")
+
+    def test_distinct_questions_both_stored(self):
+        self.insert("capital of France", [1, 0, 0, 0])
+        self.insert("how to bake a cake", [0, 0, 1, 0])
+        self.assertEqual(self.db.count_entries(), 2)
+
+
+class TestEviction(CacheTestBase):
+    def test_lru_drops_oldest_beyond_cap(self):
+        original = config.MAX_ENTRIES
+        config.MAX_ENTRIES = 3
+        try:
+            ids = [
+                self.insert("q1", [1, 0, 0, 0]),
+                self.insert("q2", [0, 1, 0, 0]),
+                self.insert("q3", [0, 0, 1, 0]),
+            ]
+            # Pin an explicit last-used order instead of trusting the wall clock
+            # (Windows clock resolution can tie values inserted back-to-back):
+            # q1 most recent, q2 least recent.
+            with self.db._conn:
+                for entry_id, used in ((ids[0], 100.0), (ids[1], 1.0), (ids[2], 50.0)):
+                    self.db._conn.execute(
+                        "UPDATE entries SET last_used_at = ? WHERE id = ?", (used, entry_id))
+            self.insert("q4", [0, 0, 0, 1])  # forces eviction of the LRU row (q2)
+            self.assertEqual(self.db.count_entries(), 3)
+            remaining = {e["id"] for e in self.db.list_entries(limit=10)}
+            self.assertIn(ids[0], remaining, "most recently used entry must survive")
+            self.assertNotIn(ids[1], remaining, "least recently used entry must be evicted")
+        finally:
+            config.MAX_ENTRIES = original
+
+
+class TestExportImport(CacheTestBase):
+    def test_export_import_round_trip(self):
+        self.insert("capital of France", [1, 0, 0, 0], answer="Paris")
+        dumped = self.db.export_entries()
+        self.assertEqual(dumped["count"], 1)
+        self.assertIsInstance(dumped["entries"][0]["embedding"], list)
+
+        other = cache_mod.Cache(Path(self.tmp.name) / "other.db")
+        try:
+            res = other.import_entries(dumped, replace=False)
+            self.assertEqual(res["inserted"], 1)
+            hit = other.lookup(self.ns, "capital of france", None)
+            self.assertTrue(hit.hit)
+            self.assertEqual(hit.answer, "Paris")
+        finally:
+            other.close()
+
+    def test_import_skips_malformed_rows(self):
+        payload = {"entries": [
+            {"namespace": self.ns, "question": "good",
+             "embedding": [1.0, 0.0, 0.0, 0.0], "answer": "ok"},
+            {"question": "no embedding"},  # missing fields -> skipped
+        ]}
+        res = self.db.import_entries(payload)
+        self.assertEqual(res["inserted"], 1)
+        self.assertEqual(res["skipped"], 1)
+
+    def test_import_rejects_bad_payload(self):
+        with self.assertRaises(ValueError):
+            self.db.import_entries({"nope": 1})
+
+
+class TestNamespaceSettings(CacheTestBase):
+    def test_override_applies_only_to_that_namespace(self):
+        self.db.update_namespace_settings(self.ns, tau=0.5)
+        self.assertEqual(self.db.namespace_settings(self.ns)["tau"], 0.5)
+        # A different namespace still follows the global tau.
+        other = cache_mod.namespace_of("m", "e", "other", 0.7)
+        self.assertEqual(self.db.namespace_settings(other)["tau"], self.db.tau)
+
+    def test_override_changes_lookup_behaviour(self):
+        # 0.6 similarity misses at the global tau=0.90 but hits at tau=0.5.
+        self.insert("capital of France", [1, 0, 0, 0])
+        q = unit([0.6, 0.8, 0, 0])
+        self.assertFalse(self.db.lookup(self.ns, "which city", np.array(q)).hit)
+        self.db.update_namespace_settings(self.ns, tau=0.5, delta=0.0)
+        self.assertTrue(self.db.lookup(self.ns, "which city", np.array(q)).hit)
+
+    def test_rejects_bad_override(self):
+        with self.assertRaises(ValueError):
+            self.db.update_namespace_settings(self.ns, tau=2.0)
+
+    def test_list_returns_set_overrides(self):
+        self.db.update_namespace_settings(self.ns, ttl_hours=3)
+        rows = self.db.list_namespace_settings()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["namespace"], self.ns)
 
 
 if __name__ == "__main__":

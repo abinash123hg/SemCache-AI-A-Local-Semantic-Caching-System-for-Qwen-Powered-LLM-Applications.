@@ -7,6 +7,18 @@ lookup is scored so you can see exactly when a cache hit is trustworthy.
 Everything runs on your own machine through **[Ollama](https://ollama.com/)** —
 no API keys, no cloud calls, no network access at runtime.
 
+**Highlights**
+
+- **Streaming answers** — `POST /chat/stream` (SSE) streams the model output
+  token by token; the UI shows what the cache is doing while it waits.
+- **Bounded, self-cleaning store** — WAL-mode SQLite, TTL expiry, an entry cap
+  with least-recently-used eviction, and near-duplicate merge so re-phrasings do
+  not pile up.
+- **Per-namespace tuning** — override `tau` / `delta` / `ttl` for one
+  model+prompt+temperature combination without touching the global defaults.
+- **Backup & restore** — export the whole cache to JSON and import it back
+  (`/cache/export`, `/cache/import`).
+
 ---
 
 ## How a request is handled
@@ -75,6 +87,8 @@ UI: <http://127.0.0.1:5500>  ·  API docs: <http://127.0.0.1:8000/docs>
 5b4870b1/
 ├─ start.bat / stop.bat        launcher + shutdown
 ├─ requirements.txt
+├─ LICENSE                     MIT
+├─ .github/workflows/ci.yml    runs the unit tests on push / PR
 ├─ backend/
 │  ├─ main.py                  FastAPI routes
 │  ├─ cache.py                 SQLite store + hit rules + analytics
@@ -97,14 +111,20 @@ UI: <http://127.0.0.1:5500>  ·  API docs: <http://127.0.0.1:8000/docs>
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/health` | backend status + which models are present |
-| `POST` | `/chat` | ask a question (cached); returns answer, `source`, similarity, timings |
+| `POST` | `/chat` | ask a question (cached); returns answer, `hit`, similarity, timings |
+| `POST` | `/chat/stream` | same decision as `/chat`, but streams the answer as Server-Sent Events |
 | `GET` | `/cache` | list cache entries (optionally by namespace) |
 | `DELETE` | `/cache/{id}` | delete one entry |
-| `POST` | `/cache/clear` | clear the cache (all or one namespace) |
+| `POST` | `/cache/clear` | clear the cache (requires `confirm: true`) |
+| `GET` | `/cache/export` | download entries as JSON (backup / move machines) |
+| `POST` | `/cache/import` | load entries from a previous export |
+| `POST` | `/cache/cleanup` | sweep expired entries now |
 | `POST` | `/feedback` | flag a wrong hit (bad entry is removed, counts as a miss) |
 | `GET` | `/analytics` | hit rate, token/latency savings, similarity histogram |
-| `GET` | `/config` · `POST` | read/update `tau`, `delta`, `ttl` |
+| `GET` | `/config` · `POST` | read/update global `tau`, `delta`, `ttl`; `POST` with a `namespace` sets a per-namespace override |
+| `GET` | `/config/namespaces` | list the per-namespace overrides that are set |
 | `GET` | `/models/status` · `POST /models/pull` | model presence / pull |
+| `POST` | `/benchmark/run` · `GET /benchmark/results` | run / read the experiments |
 
 ---
 
@@ -115,24 +135,38 @@ Edit `backend/config.py`, or use the **Settings** tab. Key values:
 | Setting | Default | Meaning |
 |---------|---------|---------|
 | `SIMILARITY_THRESHOLD` (`tau`) | `0.90` | minimum cosine score for a semantic hit |
-| `MARGIN_DELTA` (`delta`) | `0.02` | how far the best match must beat the second best |
-| `CACHE_TTL_SECONDS` | — | entry lifetime; expired rows are ignored then swept |
+| `MARGIN_THRESHOLD` (`delta`) | `0.02` | how far the best match must beat the second best |
+| `TTL_HOURS` | `24` | entry lifetime; expired rows are ignored then swept |
+| `MAX_ENTRIES` | `5000` | hard size cap; past this, the least-recently-used entries are dropped |
+| `NEAR_DUPLICATE_THRESHOLD` | `0.99` | on insert, a question this close to an existing one replaces it instead of adding a twin |
 | `PRICE_PER_1M_INPUT_TOKENS` | `0.10` | used to turn "tokens saved" into a cost figure |
 | `PRICE_PER_1M_OUTPUT_TOKENS` | `0.20` | as above |
 
+`tau`, `delta` and `ttl` can also be set **per namespace** (one namespace = one
+combination of chat model, embed model, system prompt and temperature) from the
+**Settings** tab: leave a field blank to fall back to the global value.
+
 `start.bat` keeps its own copy of the model names and ports — keep those in sync
 with `config.py` if you change them.
+
+The cache is stored in SQLite in **WAL mode** with `busy_timeout`, so concurrent
+requests do not block each other or throw "database is locked".
 
 ---
 
 ## Tests
 
-Offline unit tests (exact/semantic hits, namespace isolation, TTL, persistence,
-settings) need no model running:
+Offline unit tests need no model running — they use fake unit vectors, because
+they test the hit rules, not the embeddings. **27 tests** cover exact/semantic
+hits, the margin rule, namespace isolation, TTL, persistence, settings
+validation, punctuation normalisation, near-duplicate merge, LRU eviction,
+export/import and per-namespace overrides:
 
 ```bat
-venv\Scripts\python.exe -m pytest tests -q
+venv\Scripts\python.exe -m unittest tests.test_cache -v
 ```
+
+CI runs the same suite on Python 3.11 and 3.12 (see `.github/workflows/ci.yml`).
 
 ### Live verification
 
