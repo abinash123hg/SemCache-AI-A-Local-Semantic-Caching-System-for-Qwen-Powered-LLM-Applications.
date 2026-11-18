@@ -1,0 +1,114 @@
+{
+  "experiment": "3_margin_check",
+  "meta": {
+    "date": "2026-11-18T12:46:25+00:00",
+    "chat_model": "qwen2.5:3b",
+    "embed_model": "nomic-embed-text",
+    "tau": 0.9,
+    "delta": 0.02,
+    "ttl_hours": 24,
+    "dataset_version": "1.1",
+    "dataset_pairs": 102,
+    "hardware": {
+      "cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+      "cpu_count": 12,
+      "ram_gb": 15.6,
+      "gpu": "unknown (Ollama decides; no GPU check done)",
+      "os": "Windows-11-10.0.26300-SP0"
+    },
+    "tau_used": 0.9,
+    "embedding_seconds": 10.2
+  },
+  "delta_zero": {
+    "delta": 0.0,
+    "tp": 19,
+    "fp": 5,
+    "fn": 28,
+    "tn": 50,
+    "precision": 0.7917,
+    "recall": 0.4043,
+    "false_positive_examples": [
+      {
+        "id": 69,
+        "a": "How do I fix it?",
+        "b": "How do I fix this?",
+        "similarity": 0.9561,
+        "margin": 0.1811
+      },
+      {
+        "id": 84,
+        "a": "How do I sort a list in ascending order?",
+        "b": "How do I sort a list in descending order?",
+        "similarity": 0.9236,
+        "margin": 0.0577
+      },
+      {
+        "id": 87,
+        "a": "How do I turn on dark mode?",
+        "b": "How do I turn off dark mode?",
+        "similarity": 0.9647,
+        "margin": 0.2923
+      },
+      {
+        "id": 97,
+        "a": "How do I zoom in on a photo?",
+        "b": "How do I zoom out on a photo?",
+        "similarity": 0.9508,
+        "margin": 0.2449
+      },
+      {
+        "id": 100,
+        "a": "What is the maximum safe temperature?",
+        "b": "What is the minimum safe temperature?",
+        "similarity": 0.9022,
+        "margin": 0.1357
+      }
+    ]
+  },
+  "delta_chosen": {
+    "delta": 0.02,
+    "tp": 19,
+    "fp": 5,
+    "fn": 28,
+    "tn": 50,
+    "precision": 0.7917,
+    "recall": 0.4043,
+    "false_positive_examples": [
+      {
+        "id": 69,
+        "a": "How do I fix it?",
+        "b": "How do I fix this?",
+        "similarity": 0.9561,
+        "margin": 0.1811
+      },
+      {
+        "id": 84,
+        "a": "How do I sort a list in ascending order?",
+        "b": "How do I sort a list in descending order?",
+        "similarity": 0.9236,
+        "margin": 0.0577
+      },
+      {
+        "id": 87,
+        "a": "How do I turn on dark mode?",
+        "b": "How do I turn off dark mode?",
+        "similarity": 0.9647,
+        "margin": 0.2923
+      },
+      {
+        "id": 97,
+        "a": "How do I zoom in on a photo?",
+        "b": "How do I zoom out on a photo?",
+        "similarity": 0.9508,
+        "margin": 0.2449
+      },
+      {
+        "id": 100,
+        "a": "What is the maximum safe temperature?",
+        "b": "What is the minimum safe temperature?",
+        "similarity": 0.9022,
+        "margin": 0.1357
+      }
+    ]
+  }
+}

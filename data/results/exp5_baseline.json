@@ -1,0 +1,298 @@
+{
+  "experiment": "5_baseline_comparison",
+  "meta": {
+    "date": "2026-11-18T12:47:18+00:00",
+    "chat_model": "qwen2.5:3b",
+    "embed_model": "nomic-embed-text",
+    "tau": 0.9,
+    "delta": 0.02,
+    "ttl_hours": 24,
+    "dataset_version": "1.1",
+    "dataset_pairs": 102,
+    "hardware": {
+      "cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+      "cpu_count": 12,
+      "ram_gb": 15.6,
+      "gpu": "unknown (Ollama decides; no GPU check done)",
+      "os": "Windows-11-10.0.26300-SP0"
+    }
+  },
+  "questions": [
+    "What is the capital of France?",
+    "Explain what a semantic cache is in one sentence.",
+    "How do I reverse a list in Python?",
+    "What does HTTP status code 404 mean?",
+    "Name the capital of France.",
+    "What is the purpose of a semantic cache?",
+    "How can I reverse a Python list?",
+    "What is a 404 error in HTTP?",
+    "Tell me the capital city of France.",
+    "How to reverse a list in Python?"
+  ],
+  "results": {
+    "no_cache": {
+      "llm_calls": 10,
+      "hits": 0,
+      "mean_total_ms": 1758.2,
+      "p95_total_ms": 3831.9,
+      "requests": [
+        {
+          "question": "What is the capital of France?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2356.2,
+          "generation_ms": 2356.1
+        },
+        {
+          "question": "Explain what a semantic cache is in one sentence.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1012.3,
+          "generation_ms": 1012.2
+        },
+        {
+          "question": "How do I reverse a list in Python?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 3324.3,
+          "generation_ms": 3324.3
+        },
+        {
+          "question": "What does HTTP status code 404 mean?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 854.0,
+          "generation_ms": 854.0
+        },
+        {
+          "question": "Name the capital of France.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 735.6,
+          "generation_ms": 735.6
+        },
+        {
+          "question": "What is the purpose of a semantic cache?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1139.4,
+          "generation_ms": 1139.4
+        },
+        {
+          "question": "How can I reverse a Python list?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2664.1,
+          "generation_ms": 2664.1
+        },
+        {
+          "question": "What is a 404 error in HTTP?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 913.1,
+          "generation_ms": 913.1
+        },
+        {
+          "question": "Tell me the capital city of France.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 751.3,
+          "generation_ms": 751.3
+        },
+        {
+          "question": "How to reverse a list in Python?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 3831.9,
+          "generation_ms": 3831.9
+        }
+      ]
+    },
+    "exact_only": {
+      "llm_calls": 10,
+      "hits": 0,
+      "mean_total_ms": 1958.0,
+      "p95_total_ms": 4248.6,
+      "requests": [
+        {
+          "question": "What is the capital of France?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1629.4,
+          "generation_ms": 1035.6
+        },
+        {
+          "question": "Explain what a semantic cache is in one sentence.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1709.5,
+          "generation_ms": 1055.7
+        },
+        {
+          "question": "How do I reverse a list in Python?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 4248.6,
+          "generation_ms": 3627.4
+        },
+        {
+          "question": "What does HTTP status code 404 mean?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1798.5,
+          "generation_ms": 1199.0
+        },
+        {
+          "question": "Name the capital of France.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1775.6,
+          "generation_ms": 1030.8
+        },
+        {
+          "question": "What is the purpose of a semantic cache?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1841.3,
+          "generation_ms": 1308.6
+        },
+        {
+          "question": "How can I reverse a Python list?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2963.8,
+          "generation_ms": 2790.4
+        },
+        {
+          "question": "What is a 404 error in HTTP?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 697.8,
+          "generation_ms": 490.8
+        },
+        {
+          "question": "Tell me the capital city of France.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 531.6,
+          "generation_ms": 338.3
+        },
+        {
+          "question": "How to reverse a list in Python?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2383.8,
+          "generation_ms": 2205.8
+        }
+      ]
+    },
+    "semantic_cache": {
+      "llm_calls": 6,
+      "hits": 4,
+      "mean_total_ms": 1423.8,
+      "p95_total_ms": 2682.8,
+      "requests": [
+        {
+          "question": "What is the capital of France?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 624.9,
+          "generation_ms": 286.2
+        },
+        {
+          "question": "Explain what a semantic cache is in one sentence.",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 879.8,
+          "generation_ms": 533.7
+        },
+        {
+          "question": "How do I reverse a list in Python?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 1909.5,
+          "generation_ms": 1096.3
+        },
+        {
+          "question": "What does HTTP status code 404 mean?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2326.2,
+          "generation_ms": 1075.1
+        },
+        {
+          "question": "Name the capital of France.",
+          "hit": true,
+          "exact": false,
+          "similarity": 0.9684,
+          "total_ms": 917.7,
+          "generation_ms": 0.0
+        },
+        {
+          "question": "What is the purpose of a semantic cache?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2648.2,
+          "generation_ms": 1379.6
+        },
+        {
+          "question": "How can I reverse a Python list?",
+          "hit": true,
+          "exact": false,
+          "similarity": 0.9886,
+          "total_ms": 764.7,
+          "generation_ms": 0.0
+        },
+        {
+          "question": "What is a 404 error in HTTP?",
+          "hit": false,
+          "exact": false,
+          "similarity": null,
+          "total_ms": 2682.8,
+          "generation_ms": 1217.2
+        },
+        {
+          "question": "Tell me the capital city of France.",
+          "hit": true,
+          "exact": false,
+          "similarity": 0.9365,
+          "total_ms": 722.7,
+          "generation_ms": 0.0
+        },
+        {
+          "question": "How to reverse a list in Python?",
+          "hit": true,
+          "exact": false,
+          "similarity": 0.9984,
+          "total_ms": 761.3,
+          "generation_ms": 0.0
+        }
+      ]
+    }
+  }
+}

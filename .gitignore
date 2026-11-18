@@ -1,0 +1,34 @@
+# Virtual environment (never commit; would nearly double disk usage)
+venv/
+.venv/
+env/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Local runtime data
+data/semcache.db
+data/semcache.db-journal
+data/semcache.db-wal
+*.log
+*.tmp
+# ...but keep the two run-evidence logs the README points at
+!server_smoke.log
+!frontend_smoke.log
+
+# Ollama helper left over from setup
+_tmp_ollama.ps1
+
+# Secrets / credentials (never commit these)
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+git_credentials
+.git-credentials
+.netrc

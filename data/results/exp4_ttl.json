@@ -1,0 +1,26 @@
+{
+  "experiment": "4_ttl",
+  "meta": {
+    "date": "2026-11-18T12:46:26+00:00",
+    "chat_model": "qwen2.5:3b",
+    "embed_model": "nomic-embed-text",
+    "tau": 0.9,
+    "delta": 0.02,
+    "ttl_hours": 24,
+    "dataset_version": "1.1",
+    "dataset_pairs": 102,
+    "hardware": {
+      "cpu": "Intel64 Family 6 Model 186 Stepping 2, GenuineIntel",
+      "cpu_count": 12,
+      "ram_gb": 15.6,
+      "gpu": "unknown (Ollama decides; no GPU check done)",
+      "os": "Windows-11-10.0.26300-SP0"
+    }
+  },
+  "ttl_used_hours": 0.0002777777777777778,
+  "wait_seconds": 1.5,
+  "hit_before_expiry": true,
+  "hit_after_expiry": false,
+  "reason_after": "cache is empty for this namespace",
+  "passed": true
+}

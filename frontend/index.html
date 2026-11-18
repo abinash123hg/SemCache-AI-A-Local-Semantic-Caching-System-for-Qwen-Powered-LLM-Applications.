@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SemCache AI</title>
+  <!-- inline empty icon so the browser does not request /favicon.ico (404 noise) -->
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>SemCache AI</h1>
+    <p class="subtitle">Semantic cache for local LLM questions</p>
+    <nav>
+      <button class="tab-btn active" data-tab="chat">Chat</button>
+      <button class="tab-btn" data-tab="cache">Cache Explorer</button>
+      <button class="tab-btn" data-tab="analytics">Analytics</button>
+      <button class="tab-btn" data-tab="benchmark">Benchmark</button>
+      <button class="tab-btn" data-tab="settings">Settings / Health</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- CHAT -->
+    <section id="tab-chat" class="tab active">
+      <div class="chat-controls">
+        <button id="new-chat" class="btn">New chat</button>
+        <span id="chat-status" class="status-line"></span>
+      </div>
+      <div id="messages" class="messages">
+        <div class="empty-state">Ask a question to start. Repeats and paraphrases should come back from the cache.</div>
+      </div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" placeholder="Type a question..." maxlength="2000" autocomplete="off">
+        <button type="submit" class="btn primary">Send</button>
+      </form>
+    </section>
+
+    <!-- CACHE EXPLORER -->
+    <section id="tab-cache" class="tab">
+      <div class="row-controls">
+        <input id="cache-search" type="text" placeholder="Search cached questions...">
+        <button id="cache-refresh" class="btn">Refresh</button>
+        <button id="cache-clear" class="btn danger">Clear all...</button>
+      </div>
+      <div id="cache-list"></div>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section id="tab-analytics" class="tab">
+      <div class="row-controls">
+        <button id="analytics-refresh" class="btn">Refresh</button>
+      </div>
+      <div id="analytics-cards" class="cards"></div>
+      <h3>Similarity histogram (all recorded requests)</h3>
+      <canvas id="hist-canvas" width="800" height="260"></canvas>
+      <p class="note" id="savings-note"></p>
+    </section>
+
+    <!-- BENCHMARK -->
+    <section id="tab-benchmark" class="tab">
+      <div class="row-controls">
+        <select id="bench-select">
+          <option value="all">All experiments (1-5)</option>
+          <option value="1">1: False positives</option>
+          <option value="2">2: Threshold sweep</option>
+          <option value="3">3: Margin check</option>
+          <option value="4">4: TTL expiry</option>
+          <option value="5">5: Baseline comparison (slow, runs the LLM)</option>
+        </select>
+        <button id="bench-run" class="btn primary">Run benchmark</button>
+        <button id="bench-refresh" class="btn">Refresh results</button>
+        <span id="bench-status" class="status-line"></span>
+      </div>
+      <div id="bench-results"></div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="tab">
+      <div id="health-box" class="panel"></div>
+      <div class="panel">
+        <h3>Cache parameters</h3>
+        <label>Similarity threshold (tau): <input id="cfg-tau" type="number" step="0.01" min="0" max="1"></label>
+        <label>Margin (delta): <input id="cfg-delta" type="number" step="0.01" min="0" max="1"></label>
+        <label>TTL (hours): <input id="cfg-ttl" type="number" step="1" min="0"></label>
+        <button id="cfg-save" class="btn primary">Save</button>
+        <span id="cfg-status" class="status-line"></span>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
