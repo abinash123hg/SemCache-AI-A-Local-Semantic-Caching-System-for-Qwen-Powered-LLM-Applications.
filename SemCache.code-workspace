@@ -1,0 +1,24 @@
+{
+  "folders": [
+    {
+      "name": "SemCache AI",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true
+    },
+    "search.exclude": {
+      "venv": true,
+      "data/semcache.db": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python"
+    ]
+  }
+}

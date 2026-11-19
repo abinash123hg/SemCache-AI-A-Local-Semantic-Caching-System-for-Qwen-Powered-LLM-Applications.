@@ -1,7 +1,7 @@
 {
   "experiment": "1_false_positives",
   "meta": {
-    "date": "2026-11-18T12:46:04+00:00",
+    "date": "2026-11-18T18:57:15+00:00",
     "chat_model": "qwen2.5:3b",
     "embed_model": "nomic-embed-text",
     "tau": 0.9,
@@ -14,11 +14,11 @@
       "cpu_count": 12,
       "ram_gb": 15.6,
       "gpu": "unknown (Ollama decides; no GPU check done)",
-      "os": "Windows-11-10.0.26300-SP0"
+      "os": "Windows-10-10.0.26300-SP0"
     },
     "tau_used": 0.9,
     "delta_used": 0.02,
-    "embedding_seconds": 8.3
+    "embedding_seconds": 7.7
   },
   "counts": {
     "true_positives": 19,
@@ -433,11 +433,11 @@
       "b": "what is git",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.997,
-      "second_best": 0.7029,
-      "margin": 0.2941,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "what is git",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 2,
@@ -445,11 +445,11 @@
       "b": "explain recursion with an example.",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9872,
-      "second_best": 0.8504,
-      "margin": 0.1368,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "explain recursion with an example.",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 3,
@@ -457,11 +457,11 @@
       "b": "How to center a div in CSS",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.998,
-      "second_best": 0.6031,
-      "margin": 0.3949,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "How to center a div in CSS",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 4,
@@ -469,11 +469,11 @@
       "b": "What does CPU stand for",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9979,
-      "second_best": 0.5907,
-      "margin": 0.4072,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "What does CPU stand for",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 5,
@@ -481,11 +481,11 @@
       "b": "list the primary colors.",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9669,
-      "second_best": 0.5586,
-      "margin": 0.4083,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "list the primary colors.",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 6,
@@ -505,11 +505,11 @@
       "b": "What is the speed of light",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9967,
-      "second_best": 0.6009,
-      "margin": 0.3958,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "What is the speed of light",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 8,
@@ -517,11 +517,11 @@
       "b": "define machine learning.",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9818,
-      "second_best": 0.8892,
-      "margin": 0.0926,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "define machine learning.",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 9,
@@ -529,11 +529,11 @@
       "b": "How to boil an egg",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9983,
-      "second_best": 0.7382,
-      "margin": 0.2601,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "How to boil an egg",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 10,
@@ -553,11 +553,11 @@
       "b": "explain what an API is.",
       "label": "exact_duplicate",
       "should_hit": true,
-      "similarity": 0.9908,
-      "second_best": 0.648,
-      "margin": 0.3428,
+      "similarity": 1.0,
+      "second_best": 1.0,
+      "margin": 1.0,
       "best_match": "explain what an API is.",
-      "exact_rule": false
+      "exact_rule": true
     },
     {
       "id": 12,

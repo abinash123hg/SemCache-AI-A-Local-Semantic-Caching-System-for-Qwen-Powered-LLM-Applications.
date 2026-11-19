@@ -1,7 +1,7 @@
 {
   "experiment": "3_margin_check",
   "meta": {
-    "date": "2026-11-18T12:46:25+00:00",
+    "date": "2026-11-18T18:57:30+00:00",
     "chat_model": "qwen2.5:3b",
     "embed_model": "nomic-embed-text",
     "tau": 0.9,
@@ -14,10 +14,10 @@
       "cpu_count": 12,
       "ram_gb": 15.6,
       "gpu": "unknown (Ollama decides; no GPU check done)",
-      "os": "Windows-11-10.0.26300-SP0"
+      "os": "Windows-10-10.0.26300-SP0"
     },
     "tau_used": 0.9,
-    "embedding_seconds": 10.2
+    "embedding_seconds": 7.9
   },
   "delta_zero": {
     "delta": 0.0,

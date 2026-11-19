@@ -1,7 +1,7 @@
 {
   "experiment": "2_threshold_sweep",
   "meta": {
-    "date": "2026-11-18T12:46:15+00:00",
+    "date": "2026-11-18T18:57:22+00:00",
     "chat_model": "qwen2.5:3b",
     "embed_model": "nomic-embed-text",
     "tau": 0.9,
@@ -14,10 +14,10 @@
       "cpu_count": 12,
       "ram_gb": 15.6,
       "gpu": "unknown (Ollama decides; no GPU check done)",
-      "os": "Windows-11-10.0.26300-SP0"
+      "os": "Windows-10-10.0.26300-SP0"
     },
     "delta_used": 0.02,
-    "embedding_seconds": 10.5
+    "embedding_seconds": 7.5
   },
   "sweep": [
     {

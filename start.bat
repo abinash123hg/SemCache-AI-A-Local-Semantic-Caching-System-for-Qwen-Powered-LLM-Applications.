@@ -202,11 +202,29 @@ if defined EDGE_PATH (
     start "" "http://127.0.0.1:%FRONTEND_PORT%"
 )
 
+rem --- Open DB Browser for SQLite with the cache database ---
+rem So you can watch the stats/entries tables update in real time
+rem while chatting. Look in the usual install locations first.
+set "DBBROWSE_PATH="
+if exist "%ProgramFiles(x86)%\DB Browser for SQLite\DB Browser for SQLite.exe" set "DBBROWSE_PATH=%ProgramFiles(x86)%\DB Browser for SQLite\DB Browser for SQLite.exe"
+if not defined DBBROWSE_PATH if exist "%ProgramFiles%\DB Browser for SQLite\DB Browser for SQLite.exe" set "DBBROWSE_PATH=%ProgramFiles%\DB Browser for SQLite\DB Browser for SQLite.exe"
+if not defined DBBROWSE_PATH if exist "%LOCALAPPDATA%\Programs\DB Browser for SQLite\DB Browser for SQLite.exe" set "DBBROWSE_PATH=%LOCALAPPDATA%\Programs\DB Browser for SQLite\DB Browser for SQLite.exe"
+if defined DBBROWSE_PATH (
+    echo [..] Opening DB Browser for SQLite with semcache.db...
+    start "" "%DBBROWSE_PATH%" "%~dp0data\semcache.db"
+    echo [OK] DB Browser for SQLite opened with data\semcache.db
+) else (
+    echo [WARN] DB Browser for SQLite not found in the usual locations.
+    echo        Install it from https://sqlitebrowser.org/ and re-run, or
+    echo        open data\semcache.db manually to watch the live history.
+)
+
 rem --- Step 10: summary ---
 echo.
 echo === SemCache AI is running ===
 echo Backend : http://127.0.0.1:%BACKEND_PORT%
 echo Frontend: http://127.0.0.1:%FRONTEND_PORT%
+echo DB      : data\semcache.db (opened in DB Browser for SQLite)
 echo To stop : close the "SemCache Backend" and "SemCache Frontend"
 echo           windows, or just run stop.bat
 echo.

@@ -1,7 +1,7 @@
 {
   "experiment": "4_ttl",
   "meta": {
-    "date": "2026-11-18T12:46:26+00:00",
+    "date": "2026-11-18T18:57:32+00:00",
     "chat_model": "qwen2.5:3b",
     "embed_model": "nomic-embed-text",
     "tau": 0.9,
@@ -14,7 +14,7 @@
       "cpu_count": 12,
       "ram_gb": 15.6,
       "gpu": "unknown (Ollama decides; no GPU check done)",
-      "os": "Windows-11-10.0.26300-SP0"
+      "os": "Windows-10-10.0.26300-SP0"
     }
   },
   "ttl_used_hours": 0.0002777777777777778,
